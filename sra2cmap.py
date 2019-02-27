@@ -12,7 +12,7 @@ import numpy as np
 import os
 import re
 import sys
-import xlsxwriter
+from collections import OrderedDict
 from datetime import datetime
 from openpyxl import Workbook
 
@@ -60,7 +60,7 @@ def die(msg='Something bad happened'):
 
 # --------------------------------------------------
 def format_record(rec):
-    """Format the required fields"""
+    """Format the required fields: time, lat, lon, depth"""
 
     for fld in ['time', 'collection_date']:
         col_date = rec.get(fld)
@@ -69,6 +69,7 @@ def format_record(rec):
             rec['time'] = dt.isoformat()
 
     # Combined e.g., 37.8305 S 41.1248 W
+    # TODO: Handle other formats, e.g., HMS
     lat_lon = rec.get('lat_lon')
     if lat_lon:
         re1 = r'(\d+(?:\.\d+)?)\s*([NS])?(?:[,\s])(\d+(?:\.\d+)?)\s*([EW])?'
@@ -87,7 +88,10 @@ def format_record(rec):
             rec['lat'] = lat
             rec['lon'] = lon
 
-    depth = rec.get('depth')
+    # TODO: verify that individual lat/lon fields are in proper format
+
+    # Handles removing any non-numerical data, e.g., "9m"
+    depth = rec.get('depth') or rec.get('sample_depth')
     if depth:
         match = re.search(r'(\d+(\.\d+)?)', depth)
         if match:
@@ -99,6 +103,8 @@ def format_record(rec):
 # --------------------------------------------------
 def normalize(s):
     """
+    Make identifiers the same (snake_case_all_lower_case), e.g.:
+
     BioSample => bio_sample
     DATASTORE_filetype => datastore_filetype
     SRA_Study => sra_study
@@ -114,21 +120,6 @@ def normalize(s):
         s = camel_to_space.sub(r'_\1', s).lower()
 
     return s
-
-
-# --------------------------------------------------
-def unique(a):
-    """Unique a list without changing the order"""
-
-    seen = set()
-    ret = []
-
-    for v in a:
-        if not v in seen:
-            ret.append(v)
-            seen.add(v)
-
-    return ret
 
 
 # --------------------------------------------------
@@ -150,7 +141,6 @@ def main():
         print('{:3}: {}'.format(i, basename))
 
         out_file = os.path.join(out_dir, root + '.xlsx')
-        #workbook = xlsxwriter.Workbook(out_file)
         wb = Workbook()
 
         req_flds = ['time', 'lat', 'lon', 'depth']
@@ -158,18 +148,16 @@ def main():
             ws = wb.active
             reader = csv.DictReader(fh, delimiter=args.delimiter)
             flds = req_flds + reader.fieldnames
-            norm2fld = dict(map(lambda s: (normalize(s), s), flds))
-            ordered_flds = unique(req_flds + list(norm2fld.keys()))
+            norm2fld = OrderedDict(map(lambda s: (normalize(s), s), flds))
+            ordered_flds = list(norm2fld.keys())
             ws.append(ordered_flds)
 
             for row in reader:
                 clean = format_record(row)
                 if all([fld in row for fld in req_flds]):
-                    ws.append([row[norm2fld[fld]] for fld in ordered_flds])
+                    ws.append([clean[norm2fld[fld]] for fld in ordered_flds])
 
-            base, ext = os.path.splitext(os.path.basename(file))
-            out_xls = os.path.join(out_dir, base + '.xlsx')
-            wb.save(out_xls)
+        wb.save(out_file)
 
     print('Done, see output in "{}".'.format(out_dir))
 
