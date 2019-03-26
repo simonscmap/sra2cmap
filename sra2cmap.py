@@ -134,12 +134,19 @@ def main():
     args = get_args()
     out_dir = args.outdir
 
-    if not os.path.isdir(out_dir): os.makedirs(out_dir)
+    if out_dir and not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
 
-    meta_flds = ['dataset_make', 'dataset_source', 'dataset_doi', 'dataset_history', 'dataset_description', 'dataset_references']
+    meta_flds = [
+        'dataset_make', 'dataset_source', 'dataset_doi', 'dataset_history',
+        'dataset_description', 'dataset_references'
+    ]
 
-    vars_flds = ['var_short_name', 'var_long_name', 'var_standard_name', 'var_unit', 'var_sensor', 'var_spatial_res', 'var_temporal_res', 'var_missing_value', 'var_discipline', 'var_keywords', 'var_comment']
-
+    vars_flds = [
+        'var_short_name', 'var_long_name', 'var_standard_name', 'var_unit',
+        'var_sensor', 'var_spatial_res', 'var_temporal_res',
+        'var_missing_value', 'var_discipline', 'var_keywords', 'var_comment'
+    ]
 
     for i, file in enumerate(args.sra, start=1):
         if not os.path.isfile(file):
@@ -148,10 +155,26 @@ def main():
 
         basename = os.path.basename(file)
         root, ext = os.path.splitext(basename)
+        root = root.replace('_data', '')
+        meta_file = os.path.join(os.path.dirname(file), root + '_meta' + ext)
+        vars_file = os.path.join(os.path.dirname(file), root + '_vars' + ext)
+
+        meta = {}
+        if os.path.isfile(meta_file):
+            for line in open(meta_file):
+                field, val = line.rstrip('\n').split('\t')
+                meta[field] = val
+
+        vars_meta = {}
+        if os.path.isfile(vars_file):
+            for line in open(vars_file):
+                field, val = line.rstrip('\n').split('\t')
+                meta[field] = val
 
         print('{:3}: {:25}'.format(i, basename), end='')
 
-        out_file = os.path.join(out_dir, root + '.xlsx')
+        dir_name = out_dir if out_dir else os.path.dirname(file)
+        out_file = os.path.join(dir_name, root + '.xlsx')
         wb = Workbook()
 
         req_flds = ['time', 'lat', 'lon', 'depth']
@@ -170,7 +193,8 @@ def main():
                 clean = format_record(row)
                 if all([fld in row for fld in req_flds]):
                     num_taken += 1
-                    data_ws.append([clean[norm2fld[fld]] for fld in ordered_flds])
+                    data_ws.append(
+                        [clean[norm2fld[fld]] for fld in ordered_flds])
                 else:
                     print('Skipping\n', dict(clean))
 
@@ -178,12 +202,17 @@ def main():
             meta_ws = wb.create_sheet(title="dataset_meta_data")
             meta_ws.append(meta_flds)
 
+            if meta:
+                meta_ws.append(
+                    list(map(lambda f: meta[f] if f in meta else '', meta_flds)))
+
             # "vars" worksheet
             vars_ws = wb.create_sheet(title="vars_meta_data")
             vars_ws.append(vars_flds)
             for fld in ordered_flds[4:]:
                 pretty = ' '.join(fld.split('_')).title()
-                vars_ws.append([fld, pretty])
+                unit = meta[fld] if fld in meta else ''
+                vars_ws.append([fld, pretty, '', unit])
 
         wb.save(out_file)
         print('Exported {}'.format(num_taken))
