@@ -72,7 +72,13 @@ def format_record(rec):
     # TODO: Handle other formats, e.g., HMS
     lat_lon = rec.get('lat_lon')
     if lat_lon:
-        re1 = r'(\d+(?:\.\d+)?)\s*([NS])?(?:[,\s])(\d+(?:\.\d+)?)\s*([EW])?'
+        re1 = ('(\d+(?:\.\d+)?)'
+               '\s*'
+               '([NS])?'
+               '(?:[,\s])'
+               '(\d+(?:\.\d+)?)'
+               '\s*'
+               '([EW])?')
         match = re.search(re1, lat_lon)
         if match:
             lat, lat_dir, lon, lon_dir = match.groups()
@@ -130,6 +136,11 @@ def main():
 
     if not os.path.isdir(out_dir): os.makedirs(out_dir)
 
+    meta_flds = ['dataset_make', 'dataset_source', 'dataset_doi', 'dataset_history', 'dataset_description', 'dataset_references']
+
+    vars_flds = ['var_short_name', 'var_long_name', 'var_standard_name', 'var_unit', 'var_sensor', 'var_spatial_res', 'var_temporal_res', 'var_missing_value', 'var_discipline', 'var_keywords', 'var_comment']
+
+
     for i, file in enumerate(args.sra, start=1):
         if not os.path.isfile(file):
             warn('"{}" is not a file'.format(file))
@@ -138,26 +149,44 @@ def main():
         basename = os.path.basename(file)
         root, ext = os.path.splitext(basename)
 
-        print('{:3}: {}'.format(i, basename))
+        print('{:3}: {:25}'.format(i, basename), end='')
 
         out_file = os.path.join(out_dir, root + '.xlsx')
         wb = Workbook()
 
         req_flds = ['time', 'lat', 'lon', 'depth']
         with open(file) as fh:
-            ws = wb.active
+            # "data" worksheet
+            data_ws = wb.active
+            data_ws.title = "data"
             reader = csv.DictReader(fh, delimiter=args.delimiter)
             flds = req_flds + reader.fieldnames
             norm2fld = OrderedDict(map(lambda s: (normalize(s), s), flds))
             ordered_flds = list(norm2fld.keys())
-            ws.append(ordered_flds)
+            data_ws.append(ordered_flds)
 
+            num_taken = 0
             for row in reader:
                 clean = format_record(row)
                 if all([fld in row for fld in req_flds]):
-                    ws.append([clean[norm2fld[fld]] for fld in ordered_flds])
+                    num_taken += 1
+                    data_ws.append([clean[norm2fld[fld]] for fld in ordered_flds])
+                else:
+                    print('Skipping\n', dict(clean))
+
+            # "metadata" worksheet
+            meta_ws = wb.create_sheet(title="dataset_meta_data")
+            meta_ws.append(meta_flds)
+
+            # "vars" worksheet
+            vars_ws = wb.create_sheet(title="vars_meta_data")
+            vars_ws.append(vars_flds)
+            for fld in ordered_flds[4:]:
+                pretty = ' '.join(fld.split('_')).title()
+                vars_ws.append([fld, pretty])
 
         wb.save(out_file)
+        print('Exported {}'.format(num_taken))
 
     print('Done, see output in "{}".'.format(out_dir))
 
